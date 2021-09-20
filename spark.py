@@ -6,26 +6,24 @@ import findspark
 from datetime import datetime
 from pyspark.sql import SparkSession
 from pyspark.sql.window import Window
-from pyspark.sql.functions import row_number, lit, col, array, round, size, when, concat, concat_ws, array_except
+from pyspark.sql.functions import row_number, lit, col, array, round, size, when, concat, concat_ws, array_except, element_at
 
 presentationMode = False
 
-# initialize the PySPark session
+# initialize the PySpark session
 findspark.init()
 spark = SparkSession.builder.master("local[*]").appName("spark_TC").getOrCreate()
 spark.sparkContext.setLogLevel("ERROR")
 
 # create the data sets
-stations = [(0, "BAutogara"),(1, "BVAutogara"),(2, "SBAutogara"), \
-            (3, "CJAutogara"),(4, "MMAutogara"),(5, "ISAutogara"), \
-            (6, "CTAutogara"),(7, "TMAutogara"),(8, "BCAutogara"), \
-            (9, "MSAutogara"),(10, "Amsterdam_Centraal")]
+stations = [(0, "BAutogara"),(1, "BVAutogara"),(2, "SBAutogara"), (3, "CJAutogara"),(4, "MMAutogara"),
+            (5, "ISAutogara"), (6, "CTAutogara"),(7, "TMAutogara"),(8, "BCAutogara"), (9, "MSAutogara")]
 
-trips = [("B", "AMS", [0,10], [datetime(2021, 3, 1, 6, 0, 00), datetime(2021, 3, 1, 9, 10, 00)]), \
+trips = [("B", "AMS", [0,2], [datetime(2021, 3, 1, 6, 0, 00), datetime(2021, 3, 1, 9, 10, 00)]), \
         ("B", "MM", [0,2,4], [datetime(2021, 3, 1, 10, 10, 00), datetime(2021, 3, 1, 12, 20, 10), datetime(2021, 3, 1, 14, 10, 10)]), \
-        ("BV", "IS", [1,8,3,5], [datetime(2021, 3, 1, 8, 10, 00), datetime(2021, 3, 1, 12, 20, 10), datetime(2021, 3, 1, 15, 10, 10), datetime(2021, 3, 1, 15, 45, 10)]), \
-        ("TM", "CT", [7,2,9,4,6], [datetime(2021, 4, 1, 10, 45, 00), datetime(2021, 4, 1, 12, 20, 10), datetime(2021, 4, 1, 19, 30, 10), datetime(2021, 4, 1, 21, 30, 10), datetime(2021, 4, 1, 22, 00, 10)]), \
-        ("CJ", "BC", [3,9,5,6,7,8], [datetime(2021, 5, 1, 7, 10, 00), datetime(2021, 5, 1, 12, 20, 10), datetime(2021, 5, 1, 13, 20, 10), datetime(2021, 5, 1, 14, 20, 10), datetime(2021, 5, 1, 15, 20, 10), datetime(2021, 5, 1, 21, 20, 10)])]
+        ("BV", "IS", [1,8,3,5], [datetime(2021, 3, 1, 8, 10, 00), datetime(2021, 3, 1, 12, 20, 10), datetime(2021, 3, 1, 15, 10, 10), datetime(2021, 3, 1, 15, 45, 00)]), \
+        ("TM", "CT", [7,2,9,4,6], [datetime(2021, 4, 1, 10, 45, 00), datetime(2021, 4, 1, 12, 20, 10), datetime(2021, 4, 1, 19, 30, 10), datetime(2021, 4, 1, 21, 30, 10), datetime(2021, 4, 1, 22, 00, 30)]), \
+        ("CJ", "BC", [3,9,5,6,7,8], [datetime(2021, 5, 1, 7, 10, 00), datetime(2021, 5, 1, 12, 20, 10), datetime(2021, 5, 1, 13, 20, 10), datetime(2021, 5, 1, 14, 20, 10), datetime(2021, 5, 1, 15, 20, 10), datetime(2021, 5, 1, 21, 20, 00)])]
 
 stationsColumns = ["internal_bus_station_id", "public_bus_station"]
 tripsColumns = ["origin", "destination", "internal_bus_stations_ids", "triptimes"]
@@ -41,162 +39,68 @@ print("_____________________________ \n\n Stations data set:")
 stationsDF.show()
 print("Trips data set:")
 tripsDF.show(truncate=False)
-tripsDF = tripsDF.withColumn("unique_key", concat_ws("", col("internal_bus_stations_ids")))
+tripsDF = tripsDF.withColumn("duration", lit(round(element_at(tripsDF.triptimes, -1).cast("int") - tripsDF.triptimes[0].cast("int"))/60))
+tripsDF = tripsDF.withColumn("duration", round(tripsDF["duration"],2))
+tripsDF = tripsDF.withColumn("duration", concat(col("duration"), lit(" min")))
+from pyspark.sql.types import StringType
+tripsDF = tripsDF.withColumn("duration_in_h", lit(element_at(tripsDF.triptimes, -1) - tripsDF.triptimes[0]))
+tripsDF = tripsDF.withColumn("duration_in_h", col("duration_in_h").cast(StringType()))
 if presentationMode:
-    print("Add a unique_key column to be used for left joins.")
+    print("Calculate the trips duration:")
     tripsDF.show(truncate=False)
 
-# add an alias for the datasets
-stations = stationsDF.alias("stations")
-trips = tripsDF.alias("trips")
-
-# find the number of bus stops
-columns = trips.select(trips.internal_bus_stations_ids, size("internal_bus_stations_ids").alias("size"))
-max = columns.agg({"size": "max"}).collect()[0]
-maxArrLength = max["max(size)"]
-if presentationMode:
-    print("Get the number of bus stops")
-    columns.show()
-
-# generate a dynamic SQL query based on the bus stops count - to be used for splitting each bus stop in its own column
-# create a temporary view for the dataframe - to be used in the dynamic SQL query passed to spark.sql
-queryString = ""
-tempViewName = "trips"
-trips.createTempView(tempViewName)
-
-for i in range(maxArrLength):
-    queryString += f"{tempViewName}.internal_bus_stations_ids[{str(i)}] as column_{i+1}"
-    if i != maxArrLength - 1:
-        queryString += ", "
-
-tripsNameDF = spark.sql(f"SELECT {queryString} FROM {tempViewName}")
-if presentationMode:
-    print("Programatically build a dynamic SQL query to get each array element in its own column.")
-    print(f"Dynamic SQL query: \n <SELECT {queryString} FROM {tempViewName}>")
-    tripsNameDF.show()
-
-# append '_public' to the retrieved column names; useful for merging all of them back to an array
-columnNames = tripsNameDF.schema.names
-joinedName = ""
-
-for name in columnNames:
-    joinedName = name + "_public"
-    tripsNameDF = tripsNameDF.join(stations, tripsNameDF[name] == stations.internal_bus_station_id, how="left") \
-            .select(tripsNameDF["*"], stations["public_bus_station"].alias(joinedName))
-
-# replace null values from the strings column with ""
-tripsNameDF = tripsNameDF.na.fill("")
-if presentationMode:
-    print("Use the newly created columns for left joins against the original stations data set.")
-    tripsNameDF.show()
-
-# loop through the column names and add each column name to the correct list (internal or public)
-# in order to merge the columns to the correct array
-columnNames = tripsNameDF.schema.names
-internal = []
-public = []
-
-for name in columnNames:
-    if name.find("public") != -1:
-        public.append(name)
-    else:
-        internal.append(name)
-
-tripsNameDF = tripsNameDF.select(array(internal).alias("internal_bus_stations"), \
-                                array_except(array(public), array(lit(""))).alias("public_bus_stops"))
-
-# create a unique key out of the internal_bus_stations array and use it for the final join
-tripsNameDF = tripsNameDF.withColumn("unique_key_public_stops", concat_ws("", col("internal_bus_stations")))
+# grab the internal bus stations ids and save them to a list
+internalBus = stationsDF.select("internal_bus_station_id").collect()
+internalBusList = []
+for i in internalBus:
+    for j in i:
+        internalBusList.append(j)
+# grab the public bus stations names and save them to a list
+publicBus = stationsDF.select("public_bus_station").collect()
+publicBusList = []
+for i in publicBus:
+    for j in i:
+        publicBusList.append(j)
+# use the newly created lists to populate the 'stationsDict' dictionary
+stationsDict = dict(zip(internalBusList, publicBusList))
 
 if presentationMode:
-    print("Add the individual columns back to the array datatype.")
-    print("Create a unique_key column - the arrays just created will have 'null' values that will prevent the join from working as expected")
-    tripsNameDF.show(truncate=False)
+    print(f"Retrieve the internal ids: {internalBusList} \nRetrieve the public stations names: {publicBusList}")
+    print(f"Save the retrieved values inside a dictionary {stationsDict}\n")
 
-columns = trips.select(trips.internal_bus_stations_ids.alias("internal_bus_stations"), trips.triptimes, size("triptimes").alias("size"))
+tripsListId = []
+tripsListName = []
+
+# grab the internal_bus_stations_ids arrays and save the arrays in the 'tripsListId' list: [id, id, id], [id, id, id]
+# loop through each accessed array element and use it as dict key to retrieve the public bus station: {id: bus station}
+# the retrieved dict results from each array are saved in the 'temp' list: [name, name, name]
+# during each array iteration, the temp list is saved in the 'tripsListName' list of lists: [name, name, name], [name, name, name]
+
+tripsArr = tripsDF.select("internal_bus_stations_ids").collect()
+for i in tripsArr:
+    # row
+    for j in i:
+        # array
+        temp = []
+        if presentationMode:
+            print(f"Get the trip lists {j}")
+        tripsListId.append(j)
+        for k in j:
+            # id
+            temp.append(stationsDict.get(k))
+        if presentationMode:
+            print(f"Get the trip lists public names{temp}")
+        tripsListName.append(temp)
+
+# create the 'trips_with_ids' table out of the 'tripsListId' list and 'the tripsListName' list of lists
+trips_with_ids = spark.createDataFrame(zip(tripsListId, tripsListName), schema=['internal', 'public'])
 if presentationMode:
-    print("Knowing the numbers of bus stops, capture the longest bus stop - to be used for building the dynamic SQL query")
-    columns.show(truncate=False)
+    print("\nCreate a temp table with the internal bus stops arrays and the public bus stops name arrays:")
+    trips_with_ids.show(truncate=False)
 
-# capture the highest number of bus stops and use it for the dynamic sql query
-max = columns.agg({"size": "max"}).collect()[0]
-maxArrLength = max["max(size)"]
-
-# create a temporary view for the dynamic SQL query passed to spark.sql
-tempViewName = "triptimes"
-queryString = tempViewName + ".internal_bus_stations_ids as internal_bus_stations, "
-trips.createTempView(tempViewName)
-
-for i in range(maxArrLength):
-    queryString += f"{tempViewName}.triptimes[{str(i)}] as column_{i+1}"
-    if i != maxArrLength - 1:
-        queryString += ", "
-
-tripsDurationDF = spark.sql(f"SELECT {queryString} FROM {tempViewName}")
-
-if presentationMode:
-    print("Use the number of trips to build the dynamic SQL query, creating individual columns for each trip timestamp.")
-    print(f"Dynamic SQL query: \n <SELECT {queryString} FROM {tempViewName}>")
-    tripsDurationDF.show()
-
-columnNames = tripsDurationDF.schema.names
-maxIndex = len(columnNames)-1
-
-# create the 'duration' column and calculate the duration for the longest trip (highest bus stops count)
-tripsDurationDF = tripsDurationDF.withColumn("duration", \
-                                             col(columnNames[len(columnNames)-1]).cast("int") - \
-                                             col(columnNames[1]).cast("int"))
-if presentationMode:
-    print("Calculate the longest trip duration and create the 'duration' column - useful in the next for the 'when' clause.")
-    tripsDurationDF.show()
-
-# loop backwards from the last bus stop column to the first column
-# within each loop, calculate the duration from the counter(i) column to the first one 
-# for the rows that still have 'null' instead of a sum
-
-for i in range(maxIndex, 0, -1):
-    tripsDurationDF = tripsDurationDF.withColumn("duration", \
-                                            when(tripsDurationDF["duration"].isNull(), \
-                                            col(columnNames[i]).cast("int") - col(columnNames[1]).cast("int")) \
-                                            .otherwise(tripsDurationDF["duration"]))
-
-# convert from seconds to minutes
-tripsDurationDF = tripsDurationDF.withColumn("duration", round(tripsDurationDF["duration"])/60)
-tripsDurationDF = tripsDurationDF.withColumn("duration", round(tripsDurationDF["duration"],0))
-tripsDurationDF = tripsDurationDF.withColumn("duration", concat(col("duration"), lit(" min")))
-
-if presentationMode:
-    print("Within a reverse for loop, calculate the trip duration for each trip, regardless of how many stops it has.")
-    print("Convert the duration from seconds to minutes.")
-    tripsDurationDF.show(truncate=False)
-
-# merge the timestamps back to an array
-columnNames = tripsDurationDF.schema.names
-timestamps = []
-
-for i in range(1, len(columnNames)-1):
-        timestamps.append(columnNames[i])
-
-tripsDurationDF = tripsDurationDF.select(tripsDurationDF.internal_bus_stations, \
-                                array(timestamps).alias("triptimes"), tripsDurationDF.duration)
-if presentationMode:
-    print("Get the individual timestamps columns and merge them into one array datatype column.")
-    tripsDurationDF.show(truncate=False)
-
-# left join for getting the trips duration 
-trips = trips.join(tripsDurationDF, trips.internal_bus_stations_ids == tripsDurationDF.internal_bus_stations, how="left") \
-        .select(trips["row_num"], trips["unique_key"], trips["internal_bus_stations_ids"], trips["origin"], trips["destination"], tripsDurationDF["duration"])
-
-if presentationMode:
-    print("Get the duration column and join it in the original trips dataset.")
-    trips.orderBy(["row_num"]).show(truncate=False)
-
-# left join for getting the public bus stops names
-trips = trips.join(tripsNameDF, trips.unique_key == tripsNameDF.unique_key_public_stops, how="left") \
-        .select(trips["row_num"], trips["origin"], trips["destination"], trips["internal_bus_stations_ids"], tripsNameDF["public_bus_stops"], trips["duration"])
-
-if presentationMode:
-    print("Get the public_stops_column and join it to the trips dataset.")
+# join the trips table with the temp table
+tripsDF = tripsDF.join(trips_with_ids, tripsDF.internal_bus_stations_ids == trips_with_ids.internal) \
+        .select(tripsDF["row_num"], tripsDF["origin"], tripsDF["destination"], trips_with_ids["public"].alias("public_bus_stops"), tripsDF["duration"], tripsDF["duration_in_h"])
 
 print("New trips data set:")
-trips.orderBy(["row_num"]).show(truncate=False)
+tripsDF.orderBy(["row_num"]).show(truncate=False)
