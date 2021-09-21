@@ -8,7 +8,7 @@ from pyspark.sql.window import Window
 from pyspark.sql.types import StringType
 from pyspark.sql.functions import arrays_zip, row_number, lit, col, concat, element_at, explode, to_timestamp, round
 
-presentationMode = False
+presentationMode = True
 
 
 # initialize the PySpark session
@@ -17,54 +17,42 @@ spark = SparkSession.builder.master("local[*]").appName("spark_TC").getOrCreate(
 spark.sparkContext.setLogLevel("ERROR")
 print("______________________________")
 
-# create the data sets and pass them to dataframes
-stations = ({
-    "internal_bus_station_id": [
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9
-    ],
-    "public_bus_station": [
-        "BAutogara", "BVAutogara", "SBAutogara", "CJAutogara", "MMAutogara","ISAutogara", "CTAutogara", "TMAutogara", "BCAutogara", "MSAutogara"
-    ]
-})
-trips = ({
-    "origin": [
-        "B","B","BV","TM","CJ"
-    ],
-    "destination": [
-        "SB","MM","IS","CT","BC"
-    ],
-    "internal_bus_station_ids": [
-        [0,2],[0,2,4],[1,8,3,5],[7,2,9,4,6],[3,9,5,6,7,8]
-    ],
-    "TRIPTIMES": [
-    ["2021-03-01 06:00:00", "2021-03-01 09:10:00"],
-    ["2021-03-01 10:10:00", "2021-03-01 12:20:10", "2021-03-01 14:10:10"],
-    ["2021-04-01 08:10:00", "2021-04-01 12:20:10", "2021-04-01 15:10:00", "2021-04-01 15:45:00"],
-    ["2021-05-01 10:45:00", "2021-05-01 12:20:10", "2021-05-01 18:30:00", "2021-05-01 20:45:00", "2021-05-01 22:00:00"],
-    ["2021-05-01 07:10:00", "2021-05-01 10:20:00", "2021-05-01 12:30:00", "2021-05-01 13:25:00", "2021-05-01 14:35:00", "2021-05-01 15:45:00", "2021-05-01 21:20:25"]
-    ]
-})
-
-stationsDF = spark.read.json(spark.sparkContext.parallelize([stations]), multiLine=True)
-tripsDF = spark.read.json(spark.sparkContext.parallelize([trips]), multiLine=True)
+# read the JSON data sets and pass them to dataframes
+stationsPath = "/Users/gpintoiu/Desktop/stations.json"
+tripsPath = "/Users/gpintoiu/Desktop/trips.json"
+stationsDF = spark.read.json(stationsPath, multiLine=True)
+tripsDF = spark.read.json(tripsPath, multiLine=True)
 
 if presentationMode:
-    print("\n\nAdd the files into the DataFrames:")
+    print("\n\nPush the JSON files into the DataFrames:")
+    stationsDF.show()
+    tripsDF.show()
+    
+stationsDF = stationsDF.select("stations.*")
+tripsDF = tripsDF.select("trips.*")
+
+if presentationMode:
+    print("Convert from struct type to array:")
     stationsDF.show()
     tripsDF.show()
 
-tripsDF = tripsDF.withColumn("new", arrays_zip("origin", "destination", "internal_bus_station_ids", "TRIPTIMES")).withColumn("new", explode("new"))\
-        .select(col("new.origin"), col("new.destination"), col("new.internal_bus_station_ids").alias("internal_bus_stations_ids"), col("new.TRIPTIMES").alias("triptimes"))
+tripsDF = tripsDF.withColumn("new", arrays_zip("origin", "destination", "internal_bus_station_ids", "triptimes")).withColumn("new", explode("new"))\
+        .select(col("new.origin"), col("new.destination"), col("new.internal_bus_station_ids").alias("internal_bus_stations_ids"), col("new.triptimes"))
 stationsDF = stationsDF.withColumn("new", arrays_zip("internal_bus_station_id", "public_bus_station")).withColumn("new", explode("new"))\
             .select(col("new.internal_bus_station_id"), col("new.public_bus_station"))
     
+if presentationMode:
+    print("Explode the JSON arrays and add each array element in its own row:")
+    stationsDF.show()
+    tripsDF.show()
+
+if presentationMode:
+    print("Add the rows numbers.")
 # generate the rows count column
 w = Window().orderBy(lit('A'))
 stationsDF = stationsDF.withColumn("row_num", row_number().over(w)).select("row_num", "internal_bus_station_id", "public_bus_station")
 tripsDF = tripsDF.withColumn("row_num", row_number().over(w)).select("row_num", "origin", "destination", "internal_bus_stations_ids", "triptimes")
 
-if presentationMode:
-    print("'Explode' the arrays (add each array element in its own row), and add the rows numbers:")
 
 print("\n\n Stations data set:")
 stationsDF.show()
