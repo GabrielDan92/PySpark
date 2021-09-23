@@ -1,7 +1,8 @@
-## The script's objective is to:
+# PySpark ETL Pipeline
+#### The script's objective is to:
 1) Push the input JSON data sets into PySpark DataFrames:
 
-#### Data Set 1 - stations:
+### Data Set 1 - stations:
 ```javascript
 {
     "stations": {
@@ -14,7 +15,7 @@
     }
 }
 ```
-#### Data Set 2 - trips:
+### Data Set 2 - trips:
 ```javascript
 {
     "trips": {
@@ -37,8 +38,8 @@
         }
 }
 ```
-2) Create two PySpark dataframes using the JSON files:
-#### Stations table:
+2) Create two PySpark dataframes from the JSON files:
+### Stations table:
 |row_num|internal_bus_station_id|public_bus_station|
 |-|-|-|
 |1|0|BAutogara|
@@ -52,7 +53,7 @@
 |9|8|BCAutogara|
 |10|9|MSAutogara|
 
-#### Trips table:
+### Trips table:
 |row_num|origin|destination|internal_bus_station_ids|triptimes|
 |-|-|-|-|-|
 |1|B|SB|[0, 2]|["2021-03-01 06:00:00", "2021-03-01 09:10:00"]|
@@ -61,9 +62,9 @@
 |4|TM|CT|[7, 2, 9, 4, 6]|["2021-05-01 10:45:00", "2021-05-01 12:20:10", "2021-05-01 18:30:00", "2021-05-01 20:45:00", "2021-05-01 22:00:00"]|
 |5|CJ|BC|[3, 9, 5, 6, 7, 8]|["2021-05-01 07:10:00", "2021-05-01 10:20:00", "2021-05-01 12:30:00", "2021-05-01 13:25:00", "2021-05-01 14:35:00", "2021-05-01 15:45:00"]||
 
-3) Join the tables into a final Pyspark table that will replace the stations ids with the station names and also dinamically calculate the duration of each trip and the total trip duration (from origin to destination), regardless of the trips count:
+3) Join the tables into a final Pyspark table that will replace the stations ids with the station names and also dynamically calculate the duration of each trip and the total trip duration (from origin to destination), regardless of the trips count:
 
-#### Final table:
+### Final table:
 |row_num|origin|destination|public_bus_stops|duration_stop_1|duration_stop_2|duration_stop_3|duration_stop_4|duration_stop_5|duration_in_h_total|duration_in_min_total|
 |-|-|-|-|-|-|-|-|-|-|-|
 |1|B|SB|[BAutogara, SBAutogara]|3 hours 10 minutes|||||3 hours 10 minutes|190.0 min|
