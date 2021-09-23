@@ -64,7 +64,7 @@
 3) Join the tables into a final Pyspark table that will replace the stations ids with the station names and also dinamically calculate the duration of each trip and the total trip duration (from origin to destination), regardless of the trips count:
 
 #### Final table:
-|row_num|origin|destination|public_bus_stops|duration_in_h_1|duration_in_h_2|duration_in_h_3|duration_in_h_4|duration_in_h_5|duration_in_h_total|duration_in_min_total|
+|row_num|origin|destination|public_bus_stops|duration_stop_1|duration_stop_2|duration_stop_3|duration_stop_4|duration_stop_5|duration_in_h_total|duration_in_min_total|
 |-|-|-|-|-|-|-|-|-|-|-|
 |1|B|SB|[BAutogara, SBAutogara]|3 hours 10 minutes|||||3 hours 10 minutes|190.0 min|
 |2|B|MM|[BAutogara, SBAutogara, MMAutogara]|2 hours 10 minutes 10 seconds|1 hours 50 minutes||||4 hours 10 seconds|240.17 min|
